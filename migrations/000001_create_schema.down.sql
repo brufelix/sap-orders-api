@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS sap_sync_logs;
+DROP TABLE IF EXISTS order_items;
+DROP TABLE IF EXISTS orders;
