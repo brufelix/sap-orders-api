@@ -31,6 +31,32 @@ Client → Entra ID (JWT) → API Go → PostgreSQL
 - OpenAPI em `/openapi.yaml`
 - Testes unitários com mocks
 
+## Segurança
+
+- **Access Token** do Entra ID (não ID Token) com validação de assinatura JWKS
+- **RBAC** por scopes (`orders.read`, `orders.write`) e app roles (`Orders.Reader`, `Orders.Writer`, `Orders.Admin`)
+- **TLS** obrigatório em produção (`TLS_CERT_FILE`, `TLS_KEY_FILE`)
+- **Rate limiting** por IP (padrão: 100 req/min)
+- **Security headers** (HSTS, CSP, X-Frame-Options, etc.)
+- **PostgreSQL** com `sslmode=require` obrigatório em produção
+- **Limite de body** HTTP configurável (`MAX_BODY_BYTES`)
+
+### Configurar scopes no Entra ID
+
+1. App Registration → **Expose an API** → adicionar scopes:
+   - `orders.read` — leitura de pedidos e status de sync
+   - `orders.write` — criar, atualizar e cancelar envios
+2. **App roles** (opcional): `Orders.Reader`, `Orders.Writer`, `Orders.Admin`
+3. Cliente solicita token com scope: `api://<client-id>/orders.read`
+
+### Exemplo de token
+
+```http
+Authorization: Bearer <access_token>
+```
+
+O access token deve conter `aud=api://<client-id>` e `scp=orders.read orders.write`.
+
 ## Modelo de dados
 
 - **orders** — pedidos
@@ -45,7 +71,8 @@ Client → Entra ID (JWT) → API Go → PostgreSQL
 | `GET` | `/health/live` | Liveness (público) |
 | `GET` | `/health/ready` | Readiness com ping no DB (público) |
 | `GET` | `/openapi.yaml` | Especificação OpenAPI (público) |
-| `GET` | `/api/v1/orders` | Lista pedidos |
+| `GET` | `/swagger` | Swagger UI interativo (público) |
+| `GET` | `/api/v1/orders` | Lista pedidos paginado (`?page=1&limit=20&status=OPEN`) |
 | `POST` | `/api/v1/orders` | Cria pedido |
 | `GET` | `/api/v1/orders/{id}` | Detalhe com itens |
 | `PATCH` | `/api/v1/orders/{id}` | Atualiza status |
@@ -96,7 +123,43 @@ A API ficará disponível em `http://localhost:8081`.
 ### Testes
 
 ```bash
-make test
+make test                 # unitários
+make test-integration     # integração com PostgreSQL (testcontainers + Docker)
+```
+
+## Deploy no Railway
+
+1. Crie um projeto no [Railway](https://railway.app)
+2. Adicione um serviço **PostgreSQL**
+3. Adicione um serviço conectado ao repositório GitHub
+4. Configure as variáveis:
+
+| Variável | Valor |
+|----------|-------|
+| `ENV` | `production` |
+| `TLS_TERMINATED_AT_EDGE` | `true` |
+| `AZURE_TENANT_ID` | seu tenant |
+| `AZURE_CLIENT_ID` | seu client id |
+| `AZURE_AUDIENCE` | `api://<client-id>` |
+| `DATABASE_URL` | gerado pelo plugin PostgreSQL |
+
+5. O `railway.toml` executa migrations no **pre-deploy** e usa `/health/ready` como health check
+6. Acesse `https://<app>.up.railway.app/swagger` para a documentação interativa
+
+## Paginação
+
+```bash
+GET /api/v1/orders?page=1&limit=20&status=OPEN
+```
+
+```json
+{
+  "data": [...],
+  "page": 1,
+  "limit": 20,
+  "total": 42,
+  "totalPages": 3
+}
 ```
 
 ## Fluxo de sincronização SAP

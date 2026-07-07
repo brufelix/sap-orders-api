@@ -36,12 +36,40 @@ paths:
             application/yaml:
               schema:
                 type: string
-  /api/v1/orders:
+  /swagger:
     get:
-      summary: List orders
+      summary: Swagger UI
+      security: []
       responses:
         "200":
-          description: List of orders
+          description: Interactive API documentation
+  /api/v1/orders:
+    get:
+      summary: List orders (paginated)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [OPEN, IN_PROGRESS, CLOSED]
+      responses:
+        "200":
+          description: Paginated list of orders
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PagedOrders"
     post:
       summary: Create order
       requestBody:
@@ -325,6 +353,21 @@ components:
           $ref: "#/components/schemas/OutboxEntry"
         latestLog:
           $ref: "#/components/schemas/SAPSyncLog"
+    PagedOrders:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
   securitySchemes:
     bearerAuth:
       type: http
