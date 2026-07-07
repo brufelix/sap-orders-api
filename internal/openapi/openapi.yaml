@@ -1,0 +1,332 @@
+openapi: 3.0.3
+info:
+  title: SAP Orders API
+  description: Go REST API for orders & demands — Microsoft Entra ID auth + SAP RFC/XML sync
+  version: 1.0.0
+servers:
+  - url: http://localhost:8081
+    description: Local development
+security:
+  - bearerAuth: []
+paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+  /health/ready:
+    get:
+      summary: Readiness probe
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+        "503":
+          description: Dependencies unavailable
+  /openapi.yaml:
+    get:
+      summary: OpenAPI specification
+      security: []
+      responses:
+        "200":
+          description: OpenAPI YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /api/v1/orders:
+    get:
+      summary: List orders
+      responses:
+        "200":
+          description: List of orders
+    post:
+      summary: Create order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderNumber]
+              properties:
+                orderNumber:
+                  type: string
+      responses:
+        "201":
+          description: Order created
+  /api/v1/orders/{id}:
+    get:
+      summary: Get order with items
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Order details
+    patch:
+      summary: Update order status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [OPEN, IN_PROGRESS, CLOSED]
+      responses:
+        "200":
+          description: Order updated
+  /api/v1/orders/{id}/items:
+    post:
+      summary: Add demand item to order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [demandCode, description, deliveryDate]
+              properties:
+                demandCode:
+                  type: string
+                description:
+                  type: string
+                deliveryDate:
+                  type: string
+                  format: date
+      responses:
+        "201":
+          description: Item created
+  /api/v1/orders/{id}/items/{itemId}:
+    patch:
+      summary: Update demand item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Item updated
+  /api/v1/orders/{id}/items/{itemId}/sync:
+    get:
+      summary: Get latest sync status
+      description: Returns the most recent outbox entry and SAP log when available
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Latest sync status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStatusResponse"
+        "404":
+          description: No sync found for item
+    post:
+      summary: Enqueue SAP sync (outbox)
+      description: Accepts the sync request and processes it asynchronously via outbox worker
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Sync enqueued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboxEntry"
+  /api/v1/orders/{id}/items/{itemId}/sync/{outboxId}:
+    get:
+      summary: Get sync status by outbox id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: outboxId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncStatusResponse"
+        "404":
+          description: Outbox entry not found
+    delete:
+      summary: Cancel pending sync
+      description: Cancels the outbox entry only while status is PENDING
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: outboxId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Sync cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboxEntry"
+        "404":
+          description: Outbox entry not found
+        "409":
+          description: Sync cannot be cancelled (not PENDING)
+  /api/v1/orders/{id}/items/{itemId}/sync-logs:
+    get:
+      summary: List SAP sync logs for item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Sync log history
+components:
+  schemas:
+    OutboxEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderItemId:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        rfcFunction:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED]
+        attempts:
+          type: integer
+        maxAttempts:
+          type: integer
+        errorMessage:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+    SAPSyncLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderItemId:
+          type: string
+          format: uuid
+        rfcFunction:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, SUCCESS, FAILED]
+        syncedAt:
+          type: string
+          format: date-time
+    SyncStatusResponse:
+      type: object
+      properties:
+        outbox:
+          $ref: "#/components/schemas/OutboxEntry"
+        latestLog:
+          $ref: "#/components/schemas/SAPSyncLog"
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
