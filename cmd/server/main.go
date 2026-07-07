@@ -19,6 +19,7 @@ import (
 	"github.com/brufelix/sap-orders-api/internal/worker"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 )
 
 func main() {
@@ -41,7 +42,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	authenticator, err := auth.NewAuthenticator(ctx, cfg.AzureTenantID, cfg.AzureClientID, cfg.AzureAudience)
+	authenticator, err := auth.NewAuthenticator(ctx, cfg.AzureTenantID, cfg.AzureAudience)
 	if err != nil {
 		logger.Error("auth setup failed", "error", err)
 		os.Exit(1)
@@ -63,30 +64,39 @@ func main() {
 	orderHandler := handler.NewOrderHandler(orderService)
 	syncHandler := handler.NewSyncHandler(syncService)
 
+	tlsEnabled := cfg.TLSCertFile != "" && cfg.TLSKeyFile != ""
+
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
+	router.Use(auth.SecurityHeaders)
+	router.Use(auth.HTTPSRedirect(cfg.TLSRedirect || tlsEnabled))
 
 	router.Get("/health/live", healthHandler.Live)
 	router.Get("/health/ready", healthHandler.Ready)
 	router.Get("/openapi.yaml", handler.OpenAPI)
+	router.Get("/swagger", handler.SwaggerUI)
 
 	router.Route("/api/v1", func(r chi.Router) {
+		r.Use(httprate.LimitByIP(cfg.RateLimitRequests, time.Duration(cfg.RateLimitWindowSec)*time.Second))
+		r.Use(handler.MaxBodyBytes(cfg.MaxBodyBytes))
 		r.Use(authenticator.Middleware)
 
-		r.Get("/orders", orderHandler.List)
-		r.Post("/orders", orderHandler.Create)
-		r.Get("/orders/{id}", orderHandler.Get)
-		r.Patch("/orders/{id}", orderHandler.Update)
-		r.Post("/orders/{id}/items", orderHandler.AddItem)
-		r.Patch("/orders/{id}/items/{itemId}", orderHandler.UpdateItem)
-		r.Post("/orders/{id}/items/{itemId}/sync", syncHandler.SyncItem)
-		r.Get("/orders/{id}/items/{itemId}/sync", syncHandler.GetLatestStatus)
-		r.Get("/orders/{id}/items/{itemId}/sync/{outboxId}", syncHandler.GetStatus)
-		r.Delete("/orders/{id}/items/{itemId}/sync/{outboxId}", syncHandler.CancelSync)
-		r.Get("/orders/{id}/items/{itemId}/sync-logs", syncHandler.ListLogs)
+		r.With(auth.RequireScope(auth.ScopeOrdersRead)).Get("/orders", orderHandler.List)
+		r.With(auth.RequireScope(auth.ScopeOrdersRead)).Get("/orders/{id}", orderHandler.Get)
+
+		r.With(auth.RequireScope(auth.ScopeOrdersWrite)).Post("/orders", orderHandler.Create)
+		r.With(auth.RequireScope(auth.ScopeOrdersWrite)).Patch("/orders/{id}", orderHandler.Update)
+		r.With(auth.RequireScope(auth.ScopeOrdersWrite)).Post("/orders/{id}/items", orderHandler.AddItem)
+		r.With(auth.RequireScope(auth.ScopeOrdersWrite)).Patch("/orders/{id}/items/{itemId}", orderHandler.UpdateItem)
+		r.With(auth.RequireScope(auth.ScopeOrdersWrite)).Post("/orders/{id}/items/{itemId}/sync", syncHandler.SyncItem)
+		r.With(auth.RequireScope(auth.ScopeOrdersWrite)).Delete("/orders/{id}/items/{itemId}/sync/{outboxId}", syncHandler.CancelSync)
+
+		r.With(auth.RequireScope(auth.ScopeOrdersRead)).Get("/orders/{id}/items/{itemId}/sync", syncHandler.GetLatestStatus)
+		r.With(auth.RequireScope(auth.ScopeOrdersRead)).Get("/orders/{id}/items/{itemId}/sync/{outboxId}", syncHandler.GetStatus)
+		r.With(auth.RequireScope(auth.ScopeOrdersRead)).Get("/orders/{id}/items/{itemId}/sync-logs", syncHandler.ListLogs)
 	})
 
 	server := &http.Server{
@@ -100,7 +110,16 @@ func main() {
 	go outboxWorker.Run(ctx)
 
 	go func() {
-		logger.Info("server listening", "port", cfg.Port)
+		if tlsEnabled {
+			logger.Info("server listening with tls", "port", cfg.Port)
+			if err := server.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil && err != http.ErrServerClosed {
+				logger.Error("server error", "error", err)
+				os.Exit(1)
+			}
+			return
+		}
+
+		logger.Info("server listening", "port", cfg.Port, "env", cfg.Env)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "error", err)
 			os.Exit(1)
