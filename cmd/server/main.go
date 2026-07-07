@@ -42,7 +42,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	authenticator, err := auth.NewAuthenticator(ctx, cfg.AzureTenantID, cfg.AzureAudience)
+	authenticator, err := buildAuthenticator(ctx, cfg)
 	if err != nil {
 		logger.Error("auth setup failed", "error", err)
 		os.Exit(1)
@@ -141,4 +141,17 @@ func main() {
 	}
 
 	fmt.Println("server stopped")
+}
+
+type authMiddleware interface {
+	Middleware(http.Handler) http.Handler
+}
+
+func buildAuthenticator(ctx context.Context, cfg *config.Config) (authMiddleware, error) {
+	if cfg.Env == "development" && cfg.DevBypassAuth {
+		slog.Warn("DEV_BYPASS_AUTH enabled — do not use in production")
+		return auth.NewDevAuthenticator("dev@brunodias.dev"), nil
+	}
+
+	return auth.NewAuthenticator(ctx, cfg.AzureTenantID, cfg.AzureAudience)
 }

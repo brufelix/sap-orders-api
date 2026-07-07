@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/golang-jwt/jwt/v5"
@@ -33,15 +32,16 @@ func NewAuthenticator(ctx context.Context, tenantID, audience string) (*Authenti
 	}
 
 	issuer := fmt.Sprintf("https://login.microsoftonline.com/%s/v2.0", tenantID)
-	provider, err := oidc.NewProvider(ctx, issuer)
-	if err != nil {
+	if _, err := oidc.NewProvider(ctx, issuer); err != nil {
 		return nil, fmt.Errorf("create oidc provider: %w", err)
 	}
+
+	jwksURL := fmt.Sprintf("https://login.microsoftonline.com/%s/discovery/v2.0/keys", tenantID)
 
 	return &Authenticator{
 		issuer:   issuer,
 		audience: audience,
-		keySet:   provider.RemoteKeySet(),
+		keySet:   oidc.NewRemoteKeySet(ctx, jwksURL),
 	}, nil
 }
 
@@ -96,14 +96,13 @@ func (a *Authenticator) verifyAccessToken(ctx context.Context, rawToken string) 
 }
 
 func validateRegisteredClaims(claims jwt.RegisteredClaims, issuer, audience string) error {
-	if !claims.VerifyIssuer(issuer, true) {
-		return fmt.Errorf("invalid issuer")
-	}
-	if !claims.VerifyAudience(audience) {
-		return fmt.Errorf("invalid audience")
-	}
-	if !claims.VerifyExpiresAt(time.Now(), true) {
-		return fmt.Errorf("token expired")
+	validator := jwt.NewValidator(
+		jwt.WithIssuer(issuer),
+		jwt.WithAudience(audience),
+		jwt.WithExpirationRequired(),
+	)
+	if err := validator.Validate(claims); err != nil {
+		return fmt.Errorf("invalid token claims: %w", err)
 	}
 	return nil
 }

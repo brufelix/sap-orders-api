@@ -24,6 +24,7 @@ type Config struct {
 	RateLimitRequests  int
 	RateLimitWindowSec int
 	MaxBodyBytes       int64
+	DevBypassAuth      bool
 }
 
 func Load() (*Config, error) {
@@ -47,6 +48,11 @@ func Load() (*Config, error) {
 	maxBodyBytes, err := strconv.ParseInt(getEnv("MAX_BODY_BYTES", "1048576"), 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid MAX_BODY_BYTES: %w", err)
+	}
+
+	devBypassAuth, err := strconv.ParseBool(getEnv("DEV_BYPASS_AUTH", "false"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid DEV_BYPASS_AUTH: %w", err)
 	}
 
 	env := getEnv("ENV", "development")
@@ -85,10 +91,13 @@ func Load() (*Config, error) {
 		RateLimitRequests:  rateLimitRequests,
 		RateLimitWindowSec: rateLimitWindowSec,
 		MaxBodyBytes:       maxBodyBytes,
+		DevBypassAuth:      devBypassAuth,
 	}
 
 	if cfg.AzureTenantID == "" || cfg.AzureClientID == "" {
-		return nil, fmt.Errorf("AZURE_TENANT_ID and AZURE_CLIENT_ID are required")
+		if !(cfg.Env == "development" && cfg.DevBypassAuth) {
+			return nil, fmt.Errorf("AZURE_TENANT_ID and AZURE_CLIENT_ID are required")
+		}
 	}
 
 	return cfg, nil

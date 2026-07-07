@@ -16,5 +16,38 @@ services:
       timeout: 5s
       retries: 5
 
+  migrate:
+    image: migrate/migrate:v4.18.1
+    volumes:
+      - ./migrations:/migrations
+    command:
+      [
+        "-path",
+        "/migrations",
+        "-database",
+        "postgres://saporders:saporders@postgres:5432/saporders?sslmode=disable",
+        "up",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    container_name: sap-orders-api
+    ports:
+      - "8081:8081"
+    environment:
+      ENV: development
+      PORT: "8081"
+      DEV_BYPASS_AUTH: "true"
+      DATABASE_URL: postgres://saporders:saporders@postgres:5432/saporders?sslmode=disable
+      RATE_LIMIT_REQUESTS: "1000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   sap_orders_pg_data:
