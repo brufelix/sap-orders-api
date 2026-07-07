@@ -9,7 +9,7 @@ import (
 )
 
 type OrderRepository interface {
-	List(ctx context.Context) ([]domain.Order, error)
+	List(ctx context.Context, filter domain.OrderListFilter) (*domain.PagedResult[domain.Order], error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error)
 	Create(ctx context.Context, orderNumber, createdBy string) (*domain.Order, error)
 	Update(ctx context.Context, id uuid.UUID, status domain.OrderStatus) (*domain.Order, error)

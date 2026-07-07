@@ -19,13 +19,32 @@ func NewOrderRepository(pool *pgxpool.Pool) OrderRepository {
 	return &orderRepository{pool: pool}
 }
 
-func (r *orderRepository) List(ctx context.Context) ([]domain.Order, error) {
+func (r *orderRepository) List(ctx context.Context, filter domain.OrderListFilter) (*domain.PagedResult[domain.Order], error) {
 	q := querier(ctx, r.pool)
+
+	var total int64
+	var statusFilter any
+	if filter.Status != nil {
+		statusFilter = string(*filter.Status)
+	}
+
+	err := q.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM orders
+		WHERE ($1::text IS NULL OR status = $1)
+	`, statusFilter).Scan(&total)
+	if err != nil {
+		return nil, fmt.Errorf("count orders: %w", err)
+	}
+
+	offset := (filter.Page - 1) * filter.Limit
 	rows, err := q.Query(ctx, `
 		SELECT id, order_number, status, created_by, created_at, updated_at
 		FROM orders
+		WHERE ($1::text IS NULL OR status = $1)
 		ORDER BY created_at DESC
-	`)
+		LIMIT $2 OFFSET $3
+	`, statusFilter, filter.Limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list orders: %w", err)
 	}
@@ -47,7 +66,11 @@ func (r *orderRepository) List(ctx context.Context) ([]domain.Order, error) {
 		orders = append(orders, order)
 	}
 
-	return orders, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return domain.NewPagedResult(orders, filter.Page, filter.Limit, total), nil
 }
 
 func (r *orderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {

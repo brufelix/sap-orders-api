@@ -14,12 +14,15 @@ type mockOrderRepo struct {
 	orders map[uuid.UUID]domain.Order
 }
 
-func (m *mockOrderRepo) List(ctx context.Context) ([]domain.Order, error) {
+func (m *mockOrderRepo) List(ctx context.Context, filter domain.OrderListFilter) (*domain.PagedResult[domain.Order], error) {
 	result := make([]domain.Order, 0, len(m.orders))
 	for _, order := range m.orders {
+		if filter.Status != nil && order.Status != *filter.Status {
+			continue
+		}
 		result = append(result, order)
 	}
-	return result, nil
+	return domain.NewPagedResult(result, filter.Page, filter.Limit, int64(len(result))), nil
 }
 
 func (m *mockOrderRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {

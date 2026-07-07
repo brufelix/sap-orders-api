@@ -19,12 +19,22 @@ func NewOrderHandler(service *service.OrderService) *OrderHandler {
 }
 
 func (h *OrderHandler) List(w http.ResponseWriter, r *http.Request) {
-	orders, err := h.service.ListOrders(r.Context())
+	filter := domain.OrderListFilter{
+		Page:  queryInt(r, "page", 1),
+		Limit: queryInt(r, "limit", 20),
+	}
+
+	if status := r.URL.Query().Get("status"); status != "" {
+		orderStatus := domain.OrderStatus(status)
+		filter.Status = &orderStatus
+	}
+
+	result, err := h.service.ListOrders(r.Context(), filter)
 	if err != nil {
 		HandleError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, orders)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *OrderHandler) Get(w http.ResponseWriter, r *http.Request) {

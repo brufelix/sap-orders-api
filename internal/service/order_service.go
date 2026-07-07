@@ -19,8 +19,24 @@ func NewOrderService(orders repository.OrderRepository, items repository.ItemRep
 	return &OrderService{orders: orders, items: items}
 }
 
-func (s *OrderService) ListOrders(ctx context.Context) ([]domain.Order, error) {
-	return s.orders.List(ctx)
+const (
+	defaultPage  = 1
+	defaultLimit = 20
+	maxLimit     = 100
+)
+
+func (s *OrderService) ListOrders(ctx context.Context, filter domain.OrderListFilter) (*domain.PagedResult[domain.Order], error) {
+	if filter.Page < 1 {
+		filter.Page = defaultPage
+	}
+	if filter.Limit < 1 {
+		filter.Limit = defaultLimit
+	}
+	if filter.Limit > maxLimit {
+		filter.Limit = maxLimit
+	}
+
+	return s.orders.List(ctx, filter)
 }
 
 func (s *OrderService) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
