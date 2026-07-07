@@ -9,6 +9,9 @@ build:
 test:
 	go test ./...
 
+test-integration:
+	go test -tags=integration ./internal/repository/...
+
 tidy:
 	go mod tidy
 
