@@ -105,6 +105,18 @@ export DATABASE_URL=postgres://saporders:saporders@localhost:5434/saporders?sslm
 make migrate-up
 ```
 
+Isso aplica o schema e o seed de desenvolvimento (`000003_seed_dev`).
+
+### Seed de desenvolvimento
+
+| Pedido | Status | Itens |
+|--------|--------|-------|
+| `PO-2026-001` | OPEN | 2 demandas |
+| `PO-2026-002` | IN_PROGRESS | 2 demandas |
+| `PO-2026-003` | CLOSED | 1 demanda |
+
+Todos criados por `dev@brunodias.dev`. Autentique no Entra ID com esse e-mail (ou configure o usuário de teste no Azure) para consumir os dados via API.
+
 ### 3. Configurar variáveis
 
 ```bash
