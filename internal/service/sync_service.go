@@ -49,10 +49,27 @@ func (s *SyncService) EnqueueSync(ctx context.Context, orderID, itemID uuid.UUID
 	if err != nil {
 		return nil, err
 	}
+	if order.Status == domain.OrderStatusClosed {
+		return nil, domain.ErrOrderClosed
+	}
 
 	item, err := s.items.GetByID(ctx, orderID, itemID)
 	if err != nil {
 		return nil, err
+	}
+	if !item.Status.CanSync() {
+		return nil, domain.ErrItemNotSyncable
+	}
+	if domain.IsDeliveryDateInPast(item.DeliveryDate) {
+		return nil, domain.ErrDeliveryDateInPast
+	}
+
+	active, err := s.outbox.HasActiveByItemID(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if active {
+		return nil, domain.ErrSyncAlreadyActive
 	}
 
 	xmlPayload, err := sap.BuildDemandUpdateXML(order.OrderNumber, *item)
@@ -62,8 +79,10 @@ func (s *SyncService) EnqueueSync(ctx context.Context, orderID, itemID uuid.UUID
 
 	var created *domain.OutboxEntry
 	err = s.transactor.WithTransaction(ctx, func(txCtx context.Context) error {
-		if err := s.items.UpdateStatus(txCtx, itemID, domain.ItemStatusUpdated); err != nil {
-			return err
+		if item.Status == domain.ItemStatusFailed {
+			if err := s.items.UpdateStatus(txCtx, itemID, domain.ItemStatusUpdated); err != nil {
+				return err
+			}
 		}
 
 		entry, err := s.outbox.Create(txCtx, domain.OutboxEntry{
@@ -217,7 +236,7 @@ func (s *SyncService) CancelSync(ctx context.Context, orderID, itemID, outboxID 
 			return err
 		}
 
-		if err := s.items.UpdateStatus(txCtx, itemID, domain.ItemStatusPending); err != nil {
+		if err := s.items.UpdateStatus(txCtx, itemID, domain.ItemStatusUpdated); err != nil {
 			return err
 		}
 

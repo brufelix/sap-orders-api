@@ -108,6 +108,21 @@ func (r *outboxRepository) GetLatestByItemID(ctx context.Context, itemID uuid.UU
 	return &entry, nil
 }
 
+func (r *outboxRepository) HasActiveByItemID(ctx context.Context, itemID uuid.UUID) (bool, error) {
+	q := querier(ctx, r.pool)
+	var exists bool
+	err := q.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM sap_outbox
+			WHERE order_item_id = $1 AND status IN ('PENDING', 'PROCESSING')
+		)
+	`, itemID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check active outbox: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *outboxRepository) Cancel(ctx context.Context, itemID, outboxID uuid.UUID) (*domain.OutboxEntry, error) {
 	q := querier(ctx, r.pool)
 	var entry domain.OutboxEntry

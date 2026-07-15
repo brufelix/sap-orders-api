@@ -30,12 +30,21 @@ func HandleError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrOrderNumberRequired),
 		errors.Is(err, domain.ErrStatusRequired),
 		errors.Is(err, domain.ErrItemFieldsRequired),
-		errors.Is(err, domain.ErrInvalidDeliveryDate):
+		errors.Is(err, domain.ErrInvalidDeliveryDate),
+		errors.Is(err, domain.ErrInvalidOrderStatus),
+		errors.Is(err, domain.ErrInvalidItemStatus),
+		errors.Is(err, domain.ErrItemStatusImmutable),
+		errors.Is(err, domain.ErrItemNotSyncable),
+		errors.Is(err, domain.ErrDeliveryDateInPast),
+		errors.Is(err, domain.ErrValidation):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, domain.ErrOrderClosed),
+		errors.Is(err, domain.ErrInvalidStatusTransition),
+		errors.Is(err, domain.ErrSyncNotCancellable),
+		errors.Is(err, domain.ErrSyncAlreadyActive):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, domain.ErrSAPSyncFailed):
 		writeError(w, http.StatusBadGateway, "sap sync failed")
-	case errors.Is(err, domain.ErrSyncNotCancellable):
-		writeError(w, http.StatusConflict, "sync can only be cancelled while pending")
 	default:
 		writeError(w, http.StatusInternalServerError, "internal server error")
 	}

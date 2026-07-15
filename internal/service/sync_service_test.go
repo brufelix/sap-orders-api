@@ -49,6 +49,16 @@ func (m *mockOutboxRepo) GetLatestByItemID(ctx context.Context, itemID uuid.UUID
 	return latest, nil
 }
 
+func (m *mockOutboxRepo) HasActiveByItemID(ctx context.Context, itemID uuid.UUID) (bool, error) {
+	for _, entry := range m.entries {
+		if entry.OrderItemID == itemID &&
+			(entry.Status == domain.OutboxStatusPending || entry.Status == domain.OutboxStatusProcessing) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (m *mockOutboxRepo) ClaimPending(ctx context.Context, limit int) ([]domain.OutboxEntry, error) {
 	return nil, nil
 }
@@ -92,9 +102,14 @@ func (m *mockTransactor) WithTransaction(ctx context.Context, fn func(ctx contex
 
 func newSyncService(orderID, itemID uuid.UUID, outbox *mockOutboxRepo) *service.SyncService {
 	return service.NewSyncService(
-		&mockOrderRepo{orders: map[uuid.UUID]domain.Order{}},
+		&mockOrderRepo{orders: map[uuid.UUID]domain.Order{
+			orderID: {ID: orderID, OrderNumber: "PO-1", Status: domain.OrderStatusInProgress},
+		}},
 		&mockItemRepo{items: map[uuid.UUID]domain.OrderItem{
-			itemID: {ID: itemID, OrderID: orderID, Status: domain.ItemStatusUpdated},
+			itemID: {
+				ID: itemID, OrderID: orderID, Status: domain.ItemStatusUpdated,
+				DeliveryDate: time.Now().UTC().AddDate(0, 0, 7),
+			},
 		}},
 		&mockSyncRepo{},
 		outbox,
@@ -168,6 +183,54 @@ func TestSyncService_CancelSync_Success(t *testing.T) {
 	}
 	if entry.Status != domain.OutboxStatusCancelled {
 		t.Fatalf("expected CANCELLED, got %s", entry.Status)
+	}
+}
+
+func TestSyncService_EnqueueSync_ItemNotSyncable(t *testing.T) {
+	orderID := uuid.New()
+	itemID := uuid.New()
+	outbox := &mockOutboxRepo{entries: map[uuid.UUID]domain.OutboxEntry{}}
+	svc := service.NewSyncService(
+		&mockOrderRepo{orders: map[uuid.UUID]domain.Order{
+			orderID: {ID: orderID, OrderNumber: "PO-1", Status: domain.OrderStatusInProgress},
+		}},
+		&mockItemRepo{items: map[uuid.UUID]domain.OrderItem{
+			itemID: {
+				ID: itemID, OrderID: orderID, Status: domain.ItemStatusPending,
+				DeliveryDate: time.Now().UTC().AddDate(0, 0, 7),
+			},
+		}},
+		&mockSyncRepo{},
+		outbox,
+		&mockTransactor{},
+		sap.NewStubClient(slog.New(slog.NewTextHandler(os.Stdout, nil))),
+		"Z_UPDATE_DEMAND",
+		slog.New(slog.NewTextHandler(os.Stdout, nil)),
+	)
+
+	_, err := svc.EnqueueSync(context.Background(), orderID, itemID)
+	if err != domain.ErrItemNotSyncable {
+		t.Fatalf("expected ErrItemNotSyncable, got %v", err)
+	}
+}
+
+func TestSyncService_EnqueueSync_AlreadyActive(t *testing.T) {
+	orderID := uuid.New()
+	itemID := uuid.New()
+	outboxID := uuid.New()
+	outbox := &mockOutboxRepo{entries: map[uuid.UUID]domain.OutboxEntry{
+		outboxID: {
+			ID:          outboxID,
+			OrderItemID: itemID,
+			Status:      domain.OutboxStatusPending,
+			CreatedAt:   time.Now(),
+		},
+	}}
+	svc := newSyncService(orderID, itemID, outbox)
+
+	_, err := svc.EnqueueSync(context.Background(), orderID, itemID)
+	if err != domain.ErrSyncAlreadyActive {
+		t.Fatalf("expected ErrSyncAlreadyActive, got %v", err)
 	}
 }
 

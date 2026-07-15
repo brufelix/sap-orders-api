@@ -31,6 +31,7 @@ type OutboxRepository interface {
 	Create(ctx context.Context, entry domain.OutboxEntry) (*domain.OutboxEntry, error)
 	GetByID(ctx context.Context, itemID, outboxID uuid.UUID) (*domain.OutboxEntry, error)
 	GetLatestByItemID(ctx context.Context, itemID uuid.UUID) (*domain.OutboxEntry, error)
+	HasActiveByItemID(ctx context.Context, itemID uuid.UUID) (bool, error)
 	ClaimPending(ctx context.Context, limit int) ([]domain.OutboxEntry, error)
 	MarkCompleted(ctx context.Context, id uuid.UUID) error
 	MarkFailed(ctx context.Context, id uuid.UUID, errorMessage string, retry bool) error
